@@ -60,7 +60,7 @@ void InitFs(void);
 
 void GetInode(Inode* ind,short num);
 
-void showSubDir(void);
+void ShowSubDir(void);
 
 void MakeDir(char* name);
 
@@ -131,37 +131,26 @@ void InitFs(void)
     if(spblk.inodeused==0)
     {
         //设置基本信息
-        spblk.inodeused=1;
         spblk.inodemap[0]=1;
+        spblk.inodeused=1;
         spblk.blockmap[0]=1;
         spblk.blockused=1;
         curInode.type=1;
         curInode.filesize=2*sizeof(Dir);
         curInode.blockpos[0]=0;
-        subNum=2;
+        fseek(disk,0,SEEK_SET);
+        fwrite(&spblk,sizeof(superblock),1,disk);
+        fseek(disk,InodeHead,SEEK_SET);
+        fwrite(&curInode,sizeof(Inode),1,disk);
 
         //创建该子目录信息
         subFileList[0].ind=0;
         strcpy(subFileList[0].name,".");
-        fseek(disk,BlockHead,SEEK_SET);
-        fwrite(subFileList,sizeof(Dir),1,disk);
-
        subFileList[1].ind=0;
         strcpy(subFileList[1].name,"..");
-        if(BlockSize>=2*sizeof(Dir))
-            fseek(disk,BlockHead+sizeof(Dir),SEEK_SET);
-        else{
-            fseek(disk,BlockHead+BlockSize,SEEK_SET);
-            spblk.blockmap[1]=1;
-            spblk.blockused=2;
-            curInode.blockpos[1]=1;
-        }
-        fwrite(subFileList+1,sizeof(Dir),1,disk);
-        fseek(disk,0,SEEK_SET);
-        fwrite(&spblk,sizeof(superblock),1,disk);
-        //创建该inode
-        fseek(disk,InodeHead,SEEK_SET);
-        fwrite(&curInode,sizeof(Inode),1,disk);
+        fseek(disk,BlockHead,SEEK_SET);
+        fwrite(subFileList,sizeof(Dir),2,disk);
+        subNum=2;
     }
     else{
         subNum=0;
@@ -185,20 +174,6 @@ void InitFs(void)
         }
     }
 }
-
-// void ReadCurDir(void)
-// {
-//     short dirperblk=BlockSize/sizeof(Dir);
-//     subdirnum=(curinode.filesize-1)/dirperblk;
-//     memset(subdirlist,0,subdirnum);
-//     for(int i=0;i<subdirnum-1;i++)
-//     {
-//         fseek(disk,BlockHead+curinode.blockpos[i]*BlockSize,SEEK_SET);
-//         fread(subdirlist,sizeof(Dir),dirperblk,disk);
-//     }
-//     fseek(disk,BlockHead+curinode.blockpos[subdirnum-1]*BlockSize,SEEK_SET);
-//     fread(subdirlist,sizeof(Dir),(curinode.filesize-(subdirnum-1)*dirperblk)/dirperblk,disk);
-// }
 
 void GetInode(Inode* ind,short num)
 {
@@ -224,7 +199,7 @@ void CheckBlock()
     }
 }
 
-void showSubDir(void)
+void ShowSubDir(void)
 {
     for(int i=0;subFileList[i].name[0];i++)
     {
@@ -236,73 +211,6 @@ void showSubDir(void)
             printf("%s ",subFileList[i].name);
     }
     printf("\033[0m\n");
-}
-
-//为指定节点增加子文件
-short PutSubFile(int root, char* name,short isdir)
-{
-    short reqInode;
-    if(strcmp(name,".")==0)
-    {
-        reqInode=root;
-    }else if(strcmp(name,"..")==0)
-    {
-        reqInode=subFileList[1].ind;
-    }else
-    {
-        if(spblk.inodeused>=InodeNum)
-        {
-            fprintf(stderr,"Inode exhaust");
-            exit(1);
-        }
-        Inode subInode;
-        subInode.filesize=0;
-        subInode.type=isdir;
-
-        for(;reqInode<InodeNum;reqInode++)
-        {
-            if(spblk.inodemap[reqInode]==0)
-            {
-                spblk.inodemap[reqInode]==1;
-                spblk.inodeused++;
-                fseek(disk,InodeHead+reqInode*sizeof(Inode),SEEK_SET);
-                fwrite(&subInode,sizeof(Inode),1,disk);
-                break;
-            }
-        }
-    }
-
-    //初始化该路径信息
-    Dir initsub;
-    strcpy(initsub.name,name);
-    initsub.ind=reqInode;
-    if(root==subFileList[0].ind)
-        subFileList[subNum++]=initsub;
-    Inode rootInode;
-    GetInode(&rootInode,root);
-    rootInode.filesize+=sizeof(Dir);
-    //如果此前block已存满
-    if(rootInode.filesize%BlockSize==0)
-    {
-        for(int i=0;i<BlockNum;i++)
-        {
-            if(spblk.blockmap[i]==0)
-            {
-                spblk.blockmap[i]==1;
-                spblk.blockused++;
-                rootInode.blockpos[rootInode.filesize/BlockSize]=i;
-                fseek(disk,InodeHead+root*sizeof(Inode),SEEK_SET);
-                fwrite(&rootInode,sizeof(Inode),1,disk);
-                fseek(disk,BlockHead+i*BlockSize,SEEK_SET);
-            }
-        }
-    }else{
-        fseek(disk,BlockHead+rootInode.blockpos[rootInode.filesize/BlockSize]*BlockSize+rootInode.filesize%BlockSize,SEEK_SET);
-    }
-    fwrite(&initsub,sizeof(Dir),1,disk);
-    fseek(disk,0,SEEK_SET);
-    fwrite(&spblk,sizeof(superblock),1,disk);
-    return reqInode;
 }
 
 void MakeDir(char* name)
@@ -360,27 +268,27 @@ void MakeDir(char* name)
     fwrite(&curInode,sizeof(Inode),1,disk);
     subFileList[subNum++]=onesub;
 
-    // /*申请block添加子目录的子目录*/
-    // Dir twosub[2];
-    // twosub[0].ind=subNum;
-    // strcpy(twosub[0].name,".");
-    // twosub[1].ind=subFileList[0].ind;
-    // strcpy(twosub[0].name,"..");
-    // CheckBlock();
-    // for(int i=0;i<BlockNum;i++)
-    // {
-    //     if(spblk.blockmap[i]==0)
-    //     {
-    //         spblk.blockmap[i]==1;
-    //         spblk.blockused++;
-    //         subInode.blockpos[0]=i;
-    //         fseek(disk,InodeHead+subNum*sizeof(Inode),SEEK_SET);
-    //         fwrite(&subInode,sizeof(Inode),1,disk);
-    //         fseek(disk,BlockHead+i*BlockSize,SEEK_SET);
-    //         fwrite(twosub,sizeof(Dir),2,disk);
-    //         break;
-    //     }
-    // }
+    /*申请block添加子目录的子目录*/
+    Dir twosub[2];
+    twosub[0].ind=subNum;
+    strcpy(twosub[0].name,".");
+    twosub[1].ind=subFileList[0].ind;
+    strcpy(twosub[0].name,"..");
+    CheckBlock();
+    for(int i=0;i<BlockNum;i++)
+    {
+        if(spblk.blockmap[i]==0)
+        {
+            spblk.blockmap[i]==1;
+            spblk.blockused++;
+            subInode.blockpos[0]=i;
+            fseek(disk,InodeHead+subNum*sizeof(Inode),SEEK_SET);
+            fwrite(&subInode,sizeof(Inode),1,disk);
+            fseek(disk,BlockHead+i*BlockSize,SEEK_SET);
+            fwrite(twosub,sizeof(Dir),2,disk);
+            break;
+        }
+    }
     fseek(disk,0,SEEK_SET);
     fwrite(&spblk,sizeof(superblock),1,disk);
 }
