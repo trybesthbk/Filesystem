@@ -48,12 +48,6 @@ char* curPath[MaxDirDepth];   //当前路径名称
 
 Dir subFileList[MaxSubNum];  //目录子项信息
 
-short subNum;
-
-// short subdirnum=0;
-
-// short subhasread=0;
-
 void ReadCurDir(void);
 
 void InitFs(void);
@@ -63,6 +57,8 @@ void GetInode(Inode* ind,short num);
 void ShowSubDir(void);
 
 void MakeDir(char* name);
+
+void GoDir(char* name);
 
 char* commandlist[]={"quit","ls","mkdir","cd","rm","touch"};
 
@@ -96,12 +92,15 @@ int main()
         switch (choice)
         {
         case 1:
-            showSubDir();
+            ShowSubDir();
             break;
         case 2:
             scanf("%s",target);
             MakeDir(target);
             break;
+        case 3:
+            scanf("%s",target);
+            GoDir(target);
         default:
             break;
         }
@@ -115,7 +114,7 @@ void InitFs(void)
 {
     if(BlockSize<sizeof(Dir))
     {
-        fprintf(stderr,"BlockSize Too Small!");
+        fprintf(stderr,"BlockSize Too Small!\n");
         exit(1);
     }
     /*初始化变量信息*/
@@ -150,10 +149,8 @@ void InitFs(void)
         strcpy(subFileList[1].name,"..");
         fseek(disk,BlockHead,SEEK_SET);
         fwrite(subFileList,sizeof(Dir),2,disk);
-        subNum=2;
     }
     else{
-        subNum=0;
         GetInode(&curInode, 0);
         int step=BlockSize/sizeof(Dir);
         for(int i=0;i<curInode.filesize/BlockSize;i++)
@@ -162,7 +159,6 @@ void InitFs(void)
             {
                 fseek(disk,BlockHead+i*BlockSize+sizeof(Dir)*j,SEEK_SET);
                 fread(subFileList+i*step+j,sizeof(Dir),1,disk);
-                subNum++;
             }
         }
         int left=curInode.filesize/BlockSize;
@@ -170,7 +166,6 @@ void InitFs(void)
         {
             fseek(disk,BlockHead+left*BlockSize+sizeof(Dir)*j,SEEK_SET);
             fread(subFileList+left*step+j,sizeof(Dir),1,disk);
-            subNum++;
         }
     }
 }
@@ -185,7 +180,7 @@ void CheckInode()
 {
     if(spblk.inodeused>=InodeNum)
     {
-        fprintf(stderr,"Inode exhaust");
+        fprintf(stderr,"Inode exhaust\n");
         exit(1);
     }
 }
@@ -194,9 +189,21 @@ void CheckBlock()
 {
     if(spblk.blockused>=BlockNum)
     {
-        fprintf(stderr,"Block exhaust");
+        fprintf(stderr,"Block exhaust\n");
         exit(1);
     }
+}
+
+void ReadBlock(void* buff,Inode* ind)
+{
+    for(int i=0;i<ind->filesize/BlockSize;i++)
+    {
+        
+        fseek(disk,BlockHead+curInode.blockpos[i]*BlockSize,SEEK_SET);
+        fread(buff+i*BlockSize,BlockSize,1,disk);
+    }
+    fseek(disk,BlockHead+curInode.blockpos[ind->filesize/BlockSize]*BlockSize,SEEK_SET);
+    fread(buff+ind->filesize/BlockSize*BlockSize,ind->filesize%BlockSize,1,disk);
 }
 
 void ShowSubDir(void)
@@ -218,14 +225,14 @@ void MakeDir(char* name)
     /*异常判别*/
     if(strcmp(name,".")==0||strcmp(name,"..")==0)
     {
-        fprintf(stderr,"Wrong name");
+        fprintf(stderr,"Wrong name\n");
         return;
     }
-    for(int i=0;i<subNum;i++)
+    for(int i=0;i<curInode.filesize/sizeof(Dir);i++)
     {
         if(strcmp(name,subFileList[i].name)==0)
         {
-            fprintf(stderr,"Duplicate name");
+            fprintf(stderr,"Duplicate name\n");
             return;
         }
     }
@@ -263,17 +270,18 @@ void MakeDir(char* name)
         fseek(disk,BlockHead+curInode.blockpos[curInode.filesize/BlockSize]*BlockSize+curInode.filesize%BlockSize,SEEK_SET);
     }
     fwrite(&onesub,sizeof(Dir),1,disk);
+    subFileList[curInode.filesize/sizeof(Dir)]=onesub;
     curInode.filesize+=sizeof(Dir);
     fseek(disk,InodeHead+subFileList[0].ind*sizeof(Inode),SEEK_SET);
     fwrite(&curInode,sizeof(Inode),1,disk);
-    subFileList[subNum++]=onesub;
+    
 
     /*申请block添加子目录的子目录*/
     Dir twosub[2];
-    twosub[0].ind=subNum;
+    twosub[0].ind=reqInode;
     strcpy(twosub[0].name,".");
     twosub[1].ind=subFileList[0].ind;
-    strcpy(twosub[0].name,"..");
+    strcpy(twosub[1].name,"..");
     CheckBlock();
     for(int i=0;i<BlockNum;i++)
     {
@@ -282,7 +290,7 @@ void MakeDir(char* name)
             spblk.blockmap[i]==1;
             spblk.blockused++;
             subInode.blockpos[0]=i;
-            fseek(disk,InodeHead+subNum*sizeof(Inode),SEEK_SET);
+            fseek(disk,InodeHead+reqInode*sizeof(Inode),SEEK_SET);
             fwrite(&subInode,sizeof(Inode),1,disk);
             fseek(disk,BlockHead+i*BlockSize,SEEK_SET);
             fwrite(twosub,sizeof(Dir),2,disk);
@@ -291,4 +299,53 @@ void MakeDir(char* name)
     }
     fseek(disk,0,SEEK_SET);
     fwrite(&spblk,sizeof(superblock),1,disk);
+}
+
+void GoDir(char* name)
+{
+    /*异常判别*/
+    for(int i=0;i<curInode.filesize/sizeof(Dir);i++)
+    {
+        if(strcmp(name,subFileList[i].name)==0)
+        {
+            if(strcmp(name,".")==0)
+                return;
+            else if(strcmp(name,"..")==0)
+            {
+                for(int i=0;i<MaxDirDepth;i++)
+                {
+                    if(curPath[i]==NULL)
+                    {
+                        free(curPath[i-1]);
+                        curPath[i-1]=NULL;
+                        break;
+                    }
+                    if(i==MaxDirDepth-1)
+                        curPath[i-1]=NULL;
+                }
+            }else{
+                for(int i=0;i<MaxDirDepth;i++)
+                {
+                    if(curPath[i]==NULL)
+                    {
+                        curPath[i]=(char*)malloc((strlen(name)+1)*sizeof(char));
+                        strcpy(curPath[i],name);
+                        break;
+                    }
+                    if(i==MaxDirDepth-1)
+                    {
+                        fprintf(stderr,"Address depth overflow\n");
+                        exit(1);
+                    }
+                }
+            }
+            int presub=curInode.filesize/sizeof(Dir);
+            GetInode(&curInode,subFileList[i].ind);
+            int cursub=curInode.filesize/sizeof(Dir);
+            if(presub-cursub>0)
+                memset(subFileList+cursub,0,presub-cursub);
+            ReadBlock(subFileList,&curInode);
+            break;
+        }
+    }
 }
