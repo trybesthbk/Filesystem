@@ -58,9 +58,11 @@ void ShowSubDir(void);
 
 void MakeDir(char* name);
 
+void RmDir(char* name);
+
 void GoDir(char* name);
 
-char* commandlist[]={"quit","ls","mkdir","cd","rm","touch"};
+char* commandlist[]={"quit","ls","cd","mkdir","rm","touch"};
 
 int main()
 {
@@ -96,11 +98,16 @@ int main()
             break;
         case 2:
             scanf("%s",target);
-            MakeDir(target);
+            GoDir(target);
             break;
         case 3:
             scanf("%s",target);
-            GoDir(target);
+            MakeDir(target);
+            break;
+        case 4:
+            scanf("%s",target);
+            RmDir(target);
+            break;
         default:
             break;
         }
@@ -208,7 +215,7 @@ void ReadBlock(void* buff,Inode* ind)
 
 void ShowSubDir(void)
 {
-    for(int i=0;subFileList[i].name[0];i++)
+    for(int i=0;i<curInode.filesize/sizeof(Dir);i++)
     {
         Inode* tmp=(Inode*)malloc(sizeof(Inode));
         GetInode(tmp,subFileList[i].ind);
@@ -301,6 +308,62 @@ void MakeDir(char* name)
     fwrite(&spblk,sizeof(superblock),1,disk);
 }
 
+void ClearDir(int rootid)
+{
+    Inode root;
+    GetInode(&root,rootid);
+    /*将子目录都清空*/
+    Dir* tmpsub=(Dir*)malloc(root.filesize);
+    ReadBlock(tmpsub,&root);
+    for(int i=2;i<root.filesize/sizeof(Dir);i++)
+        ClearDir(tmpsub[i].ind);
+    /*把block清空*/
+    for(int i=0;i<root.filesize/BlockSize;i++)
+        spblk.blockmap[root.blockpos[i]]=0;
+    spblk.blockused-=root.filesize/BlockSize+1;
+    spblk.inodemap[rootid]=0;
+    spblk.inodeused--;
+}
+
+void RmcurDir(int subid, int subrank)
+{
+    /*遍历子文件夹进行清空*/
+    ClearDir(subid);
+
+    /*读取父磁盘上位置并作移动*/
+    Dir* rmdir=(Dir*)malloc(sizeof(Dir));
+    Dir* moddir=(Dir*)malloc(sizeof(Dir));
+    fseek(disk,BlockHead+BlockSize*curInode.blockpos[curInode.filesize/BlockSize]+curInode.filesize%BlockSize*sizeof(Dir),SEEK_SET);
+    fread(moddir,sizeof(Dir),1,disk);
+    fseek(disk,BlockHead+BlockSize*curInode.blockpos[subrank/(BlockSize/sizeof(Dir))]+subrank%(BlockSize/sizeof(Dir))*sizeof(Dir),SEEK_SET);
+    fread(rmdir,sizeof(Dir),1,disk);
+    fwrite(moddir,sizeof(Dir),1,disk);
+    subFileList[subrank]=subFileList[curInode.filesize/sizeof(Dir)];
+    /*修改超级块与该块的信息*/
+    if(curInode.filesize%BlockSize==0)
+    {
+        spblk.blockmap[curInode.blockpos[curInode.filesize/BlockSize]]=0;
+        spblk.blockused--;
+    }
+    curInode.filesize-=sizeof(Dir);
+    fseek(disk,InodeHead+subFileList[0].ind*sizeof(Inode),SEEK_SET);
+    fwrite(&curInode,sizeof(Inode),1,disk);
+    fseek(disk,0,SEEK_SET);
+    fwrite(&spblk,sizeof(superblock),1,disk);
+}
+
+void RmDir(char* name)
+{
+    for(int i=2;i<curInode.filesize/sizeof(Dir);i++)
+    {
+        if(strcmp(subFileList[i].name,name)==0)
+        {
+            RmcurDir(subFileList[i].ind,i);
+            break;
+        }
+    }
+}
+
 void GoDir(char* name)
 {
     /*异常判别*/
@@ -328,8 +391,9 @@ void GoDir(char* name)
                 {
                     if(curPath[i]==NULL)
                     {
-                        curPath[i]=(char*)malloc((strlen(name)+1)*sizeof(char));
+                        curPath[i]=(char*)malloc((strlen(name)+2)*sizeof(char));
                         strcpy(curPath[i],name);
+                        strcat(curPath[i],"/");
                         break;
                     }
                     if(i==MaxDirDepth-1)
