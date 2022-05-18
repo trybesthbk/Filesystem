@@ -370,54 +370,78 @@ void RmDoF(char* name)
     }
 }
 
+void GoDirId(int id)
+{
+    //读取inode,非文件夹则退出
+    int indid=subFileList[id].ind;
+    Inode subind;
+    GetInode(&subind,indid);
+    if(!subind.type)
+    {
+        printf("Cannot enter file!\n");
+        return;
+    }
+    //回退则删除当前路径
+    if(indid==subFileList[1].ind)
+    {
+        if(curPath[0]==NULL)
+            return;
+        for(int j=1;j<=MaxDirDepth;j++)
+        {
+            if(curPath[j]==NULL)
+            {
+                free(curPath[j-1]);
+                curPath[j-1]=NULL;
+                break;
+            }
+        }
+    }
+    //否则增加路径
+    else{
+        int j=0;
+        for(;j<MaxDirDepth;j++)
+        {
+            if(curPath[j]==NULL)
+            {
+                curPath[j]=(char*)malloc((strlen(subFileList[id].name)+2)*sizeof(char));
+                strcpy(curPath[j],subFileList[id].name);
+                strcat(curPath[j],"/");
+                break;
+            }
+        }
+        //路径已满
+        if(j==MaxDirDepth)
+        {
+            fprintf(stderr,"Address depth overflow\n");
+            return;
+        }
+    }
+    int presub=curInode.filesize/sizeof(Dir);
+    int cursub=subind.filesize/sizeof(Dir);
+    if(presub-cursub>0)
+        memset(subFileList+cursub,0,(presub-cursub)*sizeof(Dir));
+    ReadBlock(subFileList,&subind);
+    curInode=subind;
+}
+
 void GoDir(char* name)
 {
-    /*异常判别*/
-    for(int i=0;i<curInode.filesize/sizeof(Dir);i++)
+    if(strcmp(name,".")==0)
+        return;
+    int i=1;
+    for(;i<curInode.filesize/sizeof(Dir);i++)
     {
+        //找到该名称
         if(strcmp(name,subFileList[i].name)==0)
         {
-            if(strcmp(name,".")==0)
-                return;
-            else if(strcmp(name,"..")==0)
-            {
-                if(curPath[0]==NULL)
-                    return;
-                for(int j=1;j<=MaxDirDepth;j++)
-                {
-                    if(curPath[j]==NULL)
-                    {
-                        free(curPath[j-1]);
-                        curPath[j-1]=NULL;
-                        break;
-                    }
-                }
-            }else{
-                int j=0;
-                for(;j<MaxDirDepth;j++)
-                {
-                    if(curPath[j]==NULL)
-                    {
-                        curPath[j]=(char*)malloc((strlen(name)+2)*sizeof(char));
-                        strcpy(curPath[j],name);
-                        strcat(curPath[j],"/");
-                        break;
-                    }
-                }
-                if(j==MaxDirDepth)
-                {
-                    fprintf(stderr,"Address depth overflow\n");
-                    exit(1);
-                }
-            }
-            int presub=curInode.filesize/sizeof(Dir);
-            GetInode(&curInode,subFileList[i].ind);
-            int cursub=curInode.filesize/sizeof(Dir);
-            if(presub-cursub>0)
-                memset(subFileList+cursub,0,(presub-cursub)*sizeof(Dir));
-            ReadBlock(subFileList,&curInode);
+            GoDirId(i);
             break;
         }
+    }
+    if(i==curInode.filesize/sizeof(Dir))
+    {
+        printf("No such Directory!\n");
+        return;
     }
 }
 
