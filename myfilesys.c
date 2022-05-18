@@ -44,7 +44,7 @@ superblock spblk;
 
 Inode curInode;  //当前目录的inode
 
-char* curPath[MaxDirDepth];   //当前路径名称
+char* curPath[MaxDirDepth+1];   //当前路径名称
 
 Dir subFileList[MaxSubNum];  //目录子项信息
 
@@ -70,7 +70,7 @@ int main()
     while (1)
     {
         //打印终端头部
-        printf("hbk@filesys:");
+        printf("hbk@filesys:/");
         for(int i=0;i<MaxDirDepth;i++)
         {
             if(*(curPath+i)==NULL)
@@ -128,8 +128,6 @@ void InitFs(void)
     disk=NULL;
     memset(&spblk,0,sizeof(superblock));
     memset(&curPath,0,MaxDirDepth*sizeof(char*));
-    curPath[0]=(char*)malloc(2*sizeof(char));
-    strcpy(curPath[0],"/");
     memset(&subFileList,0,MaxSubNum*sizeof(Dir));
 
     disk=fopen("disk","r+");
@@ -235,7 +233,7 @@ void MakeDir(char* name)
         fprintf(stderr,"Wrong name\n");
         return;
     }
-    for(int i=0;i<curInode.filesize/sizeof(Dir);i++)
+    for(int i=2;i<curInode.filesize/sizeof(Dir);i++)
     {
         if(strcmp(name,subFileList[i].name)==0)
         {
@@ -294,7 +292,7 @@ void MakeDir(char* name)
     {
         if(spblk.blockmap[i]==0)
         {
-            spblk.blockmap[i]==1;
+            spblk.blockmap[i]=1;
             spblk.blockused++;
             subInode.blockpos[0]=i;
             fseek(disk,InodeHead+reqInode*sizeof(Inode),SEEK_SET);
@@ -375,39 +373,40 @@ void GoDir(char* name)
                 return;
             else if(strcmp(name,"..")==0)
             {
-                for(int i=0;i<MaxDirDepth;i++)
+                if(curPath[0]==NULL)
+                    return;
+                for(int j=1;j<=MaxDirDepth;j++)
                 {
-                    if(curPath[i]==NULL)
+                    if(curPath[j]==NULL)
                     {
-                        free(curPath[i-1]);
-                        curPath[i-1]=NULL;
+                        free(curPath[j-1]);
+                        curPath[j-1]=NULL;
                         break;
                     }
-                    if(i==MaxDirDepth-1)
-                        curPath[i-1]=NULL;
                 }
             }else{
-                for(int i=0;i<MaxDirDepth;i++)
+                int j=0;
+                for(;j<MaxDirDepth;j++)
                 {
-                    if(curPath[i]==NULL)
+                    if(curPath[j]==NULL)
                     {
-                        curPath[i]=(char*)malloc((strlen(name)+2)*sizeof(char));
-                        strcpy(curPath[i],name);
-                        strcat(curPath[i],"/");
+                        curPath[j]=(char*)malloc((strlen(name)+2)*sizeof(char));
+                        strcpy(curPath[j],name);
+                        strcat(curPath[j],"/");
                         break;
                     }
-                    if(i==MaxDirDepth-1)
-                    {
-                        fprintf(stderr,"Address depth overflow\n");
-                        exit(1);
-                    }
+                }
+                if(j==MaxDirDepth)
+                {
+                    fprintf(stderr,"Address depth overflow\n");
+                    exit(1);
                 }
             }
             int presub=curInode.filesize/sizeof(Dir);
             GetInode(&curInode,subFileList[i].ind);
             int cursub=curInode.filesize/sizeof(Dir);
             if(presub-cursub>0)
-                memset(subFileList+cursub,0,presub-cursub);
+                memset(subFileList+cursub,0,(presub-cursub)*sizeof(Dir));
             ReadBlock(subFileList,&curInode);
             break;
         }
