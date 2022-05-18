@@ -203,11 +203,10 @@ void ReadBlock(void* buff,Inode* ind)
 {
     for(int i=0;i<ind->filesize/BlockSize;i++)
     {
-        
-        fseek(disk,BlockHead+curInode.blockpos[i]*BlockSize,SEEK_SET);
+        fseek(disk,BlockHead+ind->blockpos[i]*BlockSize,SEEK_SET);
         fread(buff+i*BlockSize,BlockSize,1,disk);
     }
-    fseek(disk,BlockHead+curInode.blockpos[ind->filesize/BlockSize]*BlockSize,SEEK_SET);
+    fseek(disk,BlockHead+ind->blockpos[ind->filesize/BlockSize]*BlockSize,SEEK_SET);
     fread(buff+ind->filesize/BlockSize*BlockSize,ind->filesize%BlockSize,1,disk);
 }
 
@@ -316,7 +315,7 @@ void ClearDir(int rootid)
     for(int i=2;i<root.filesize/sizeof(Dir);i++)
         ClearDir(tmpsub[i].ind);
     /*把block清空*/
-    for(int i=0;i<root.filesize/BlockSize;i++)
+    for(int i=0;i<=root.filesize/BlockSize;i++)
         spblk.blockmap[root.blockpos[i]]=0;
     spblk.blockused-=root.filesize/BlockSize+1;
     spblk.inodemap[rootid]=0;
