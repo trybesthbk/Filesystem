@@ -62,6 +62,8 @@ void RmDir(char* name);
 
 void GoDir(char* name);
 
+void CreaterFile(char* name);
+
 char* commandlist[]={"quit","ls","cd","mkdir","rm","touch"};
 
 int main()
@@ -107,6 +109,10 @@ int main()
         case 4:
             scanf("%s",target);
             RmDir(target);
+            break;
+        case 5:
+            scanf("%s",target);
+            CreaterFile(target);
             break;
         default:
             break;
@@ -214,12 +220,12 @@ void ShowSubDir(void)
 {
     for(int i=0;i<curInode.filesize/sizeof(Dir);i++)
     {
-        Inode* tmp=(Inode*)malloc(sizeof(Inode));
-        GetInode(tmp,subFileList[i].ind);
-        if(tmp->type)
+        Inode tmp;
+        GetInode(&tmp,subFileList[i].ind);
+        if(tmp.type)
             printf("\033[32m%s  ",subFileList[i].name);
         else
-            printf("%s ",subFileList[i].name);
+            printf("\033[0m%s ",subFileList[i].name);
     }
     printf("\033[0m\n");
 }
@@ -410,4 +416,68 @@ void GoDir(char* name)
             break;
         }
     }
+}
+
+void CreaterFile(char* name)
+{
+    /*异常判别*/
+    if(strcmp(name,".")==0||strcmp(name,"..")==0)
+    {
+        fprintf(stderr,"Wrong name\n");
+        return;
+    }
+    for(int i=2;i<curInode.filesize/sizeof(Dir);i++)
+    {
+        if(strcmp(name,subFileList[i].name)==0)
+        {
+            fprintf(stderr,"Duplicate name\n");
+            return;
+        }
+    }
+    /*申请Inode*/
+    CheckInode();
+    Inode subInode;
+    subInode.filesize=0;
+    subInode.type=0;
+
+    short reqInode=0;
+    for(;reqInode<InodeNum;reqInode++)
+        if(spblk.inodemap[reqInode]==0)
+            break;
+    spblk.inodemap[reqInode]=1;
+    spblk.inodeused++;
+    /*在父目录的block中更新该信息*/
+    Dir onesub;
+    onesub.ind=reqInode;
+    strcpy(onesub.name,name);
+    if(curInode.filesize%BlockSize==0)
+    {
+        CheckBlock();
+        for(int i=0;i<BlockNum;i++)
+        {
+            if(spblk.blockmap[i]==0)
+            {
+                spblk.blockmap[i]=1;
+                spblk.blockused++;
+                curInode.blockpos[curInode.filesize/BlockSize]=i;
+                fseek(disk,BlockHead+i*BlockSize,SEEK_SET);
+                break;
+            }
+        }
+    }else{
+        fseek(disk,BlockHead+curInode.blockpos[curInode.filesize/BlockSize]*BlockSize+curInode.filesize%BlockSize,SEEK_SET);
+    }
+    //副目录增加该文件
+    fwrite(&onesub,sizeof(Dir),1,disk);
+    subFileList[curInode.filesize/sizeof(Dir)]=onesub;
+    curInode.filesize+=sizeof(Dir);
+    //重写父节点
+    fseek(disk,InodeHead+subFileList[0].ind*sizeof(Inode),SEEK_SET);
+    fwrite(&curInode,sizeof(Inode),1,disk);
+    
+    /*写入超级块*/
+    fseek(disk,InodeHead+reqInode*sizeof(Inode),SEEK_SET);
+    fwrite(&subInode,sizeof(Inode),1,disk);
+    fseek(disk,0,SEEK_SET);
+    fwrite(&spblk,sizeof(superblock),1,disk);
 }
