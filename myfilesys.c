@@ -58,7 +58,7 @@ void ShowSubDir(void);
 
 void MakeDir(char* name);
 
-void RmDir(char* name);
+void RmDoF(char* name);
 
 void GoDir(char* name);
 
@@ -108,7 +108,7 @@ int main()
             break;
         case 4:
             scanf("%s",target);
-            RmDir(target);
+            RmDoF(target);
             break;
         case 5:
             scanf("%s",target);
@@ -311,27 +311,30 @@ void MakeDir(char* name)
     fwrite(&spblk,sizeof(superblock),1,disk);
 }
 
-void ClearDir(int rootid)
+void ClearDoF(int rootid)
 {
     Inode root;
     GetInode(&root,rootid);
-    /*将子目录都清空*/
-    Dir* tmpsub=(Dir*)malloc(root.filesize);
-    ReadBlock(tmpsub,&root);
-    for(int i=2;i<root.filesize/sizeof(Dir);i++)
-        ClearDir(tmpsub[i].ind);
+    if(root.type)
+    {
+        /*将子目录都清空*/
+        Dir* tmpsub=(Dir*)malloc(root.filesize);
+        ReadBlock(tmpsub,&root);
+        for(int i=2;i<root.filesize/sizeof(Dir);i++)
+            ClearDoF(tmpsub[i].ind);
+    }
     /*把block清空*/
-    for(int i=0;i<=root.filesize/BlockSize;i++)
+    for(int i=0;i<(root.filesize+BlockSize-1)/BlockSize;i++)
         spblk.blockmap[root.blockpos[i]]=0;
-    spblk.blockused-=root.filesize/BlockSize+1;
+    spblk.blockused-=(root.filesize+BlockSize-1)/BlockSize;
     spblk.inodemap[rootid]=0;
     spblk.inodeused--;
 }
 
-void RmcurDir(int subid, int subrank)
+void RmcurDoF(int subid, int subrank)
 {
     /*遍历子文件夹进行清空*/
-    ClearDir(subid);
+    ClearDoF(subid);
 
     /*读取父磁盘上位置并作移动*/
     Dir* rmdir=(Dir*)malloc(sizeof(Dir));
@@ -355,13 +358,13 @@ void RmcurDir(int subid, int subrank)
     fwrite(&spblk,sizeof(superblock),1,disk);
 }
 
-void RmDir(char* name)
+void RmDoF(char* name)
 {
     for(int i=2;i<curInode.filesize/sizeof(Dir);i++)
     {
         if(strcmp(subFileList[i].name,name)==0)
         {
-            RmcurDir(subFileList[i].ind,i);
+            RmcurDoF(subFileList[i].ind,i);
             break;
         }
     }
