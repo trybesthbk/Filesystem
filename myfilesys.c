@@ -64,7 +64,9 @@ void GoDir(char* name);
 
 void CreaterFile(char* name);
 
-char* commandlist[]={"quit","ls","cd","mkdir","rm","touch"};
+void ModFile(char* name,short WoR);
+
+char* commandlist[]={"quit","ls","cd","mkdir","rm","touch","vi","cat"};
 
 int main()
 {
@@ -113,6 +115,14 @@ int main()
         case 5:
             scanf("%s",target);
             CreaterFile(target);
+            break;
+        case 6:
+            scanf("%s",target);
+            ModFile(target,1);
+            break;
+        case 7:
+            scanf("%s",target);
+            ModFile(target,0);
             break;
         default:
             break;
@@ -187,22 +197,24 @@ void GetInode(Inode* ind,short num)
     fread(ind,sizeof(Inode),1,disk);
 }
 
-void CheckInode()
+short CheckInode()
 {
     if(spblk.inodeused>=InodeNum)
     {
-        fprintf(stderr,"Inode exhaust\n");
-        exit(1);
+        printf("Inode exhaust\n");
+        return 1;
     }
+    return 0;
 }
 
-void CheckBlock()
+short CheckBlock()
 {
     if(spblk.blockused>=BlockNum)
     {
-        fprintf(stderr,"Block exhaust\n");
-        exit(1);
+        printf("Block exhaust\n");
+        return 1;
     }
+    return 0;
 }
 
 void ReadBlock(void* buff,Inode* ind)
@@ -247,7 +259,8 @@ void MakeDir(char* name)
         }
     }
     /*申请Inode*/
-    CheckInode();
+    if(CheckInode())
+        return;
     Inode subInode;
     subInode.filesize=2*sizeof(Dir);
     subInode.type=1;
@@ -264,7 +277,8 @@ void MakeDir(char* name)
     strcpy(onesub.name,name);
     if(curInode.filesize%BlockSize==0)
     {
-        CheckBlock();
+        if(CheckBlock())
+            return;
         for(int i=0;i<BlockNum;i++)
         {
             if(spblk.blockmap[i]==0)
@@ -292,7 +306,8 @@ void MakeDir(char* name)
     strcpy(twosub[0].name,".");
     twosub[1].ind=subFileList[0].ind;
     strcpy(twosub[1].name,"..");
-    CheckBlock();
+    if(CheckBlock())
+        return;
     for(int i=0;i<BlockNum;i++)
     {
         if(spblk.blockmap[i]==0)
@@ -462,7 +477,8 @@ void CreaterFile(char* name)
         }
     }
     /*申请Inode*/
-    CheckInode();
+    if(CheckInode())
+        return;
     Inode subInode;
     subInode.filesize=0;
     subInode.type=0;
@@ -479,7 +495,8 @@ void CreaterFile(char* name)
     strcpy(onesub.name,name);
     if(curInode.filesize%BlockSize==0)
     {
-        CheckBlock();
+        if(CheckBlock())
+            return;
         for(int i=0;i<BlockNum;i++)
         {
             if(spblk.blockmap[i]==0)
@@ -507,4 +524,68 @@ void CreaterFile(char* name)
     fwrite(&subInode,sizeof(Inode),1,disk);
     fseek(disk,0,SEEK_SET);
     fwrite(&spblk,sizeof(superblock),1,disk);
+}
+
+void WriteFile(Inode* subind)
+{
+    char* buff=(char*)malloc(MaxBlockPerInode*BlockSize);
+    scanf("%s",buff);
+    int totalsize=(strlen(buff)+1)*sizeof(char);
+    int blockneed=(totalsize+BlockSize-1)/BlockSize;
+    if(!blockneed)
+        return;
+    if(blockneed+spblk.blockused>BlockNum)
+    {
+         printf("Block not enough\n");
+         return;
+    }
+    int cnt=0;
+    for(int i=0;i<BlockNum;i++)
+    {
+        if(!spblk.blockmap[i])
+        {
+            spblk.blockmap[i]=1;
+            fseek(disk,BlockHead+BlockSize*i,SEEK_SET);
+            fwrite(buff+cnt,BlockSize,1,disk);
+            subind->blockpos[cnt++]=i;
+            if(cnt==blockneed)
+            {
+                subind->filesize=totalsize;
+                spblk.blockused+=blockneed;
+                break;
+            }
+        }
+    }
+}
+
+void ReadFile(Inode* subind)
+{
+    char* buff=(char*)malloc(MaxBlockPerInode*BlockSize);
+    ReadBlock(buff,subind);
+    printf("%s\n",buff);
+}
+
+void ModFile(char* name,short WoR)
+{
+    for(int i=2;i<curInode.filesize/sizeof(Dir);i++)
+    {
+        if(strcmp(subFileList[i].name,name)==0)
+        {
+            int subid=subFileList[i].ind;
+            Inode subind;
+            GetInode(&subind,subid);
+            if(subind.type)
+                printf("Can write a directory!\n");
+            if(WoR){
+                WriteFile(&subind);
+                fseek(disk,InodeHead+subid*sizeof(Inode),SEEK_SET);
+                fwrite(&subind,sizeof(Inode),1,disk);
+                fseek(disk,0,SEEK_SET);
+                fwrite(&spblk,sizeof(superblock),1,disk);
+            }
+            else
+                ReadFile(&subind);
+            break;
+        }
+    }
 }
